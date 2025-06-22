@@ -1,0 +1,47 @@
+x-env: &bot-env
+  TG_TOKEN: ${TG_TOKEN}
+  DB_HOST: ${DB_HOST}
+  DB_PORT: ${DB_PORT}
+  DB_USER: ${DB_USER}
+  DB_PASS: ${DB_PASS}
+  DB_NAME: ${DB_NAME}
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: exp_db
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASS:-postgres}
+      POSTGRES_DB: ${DB_NAME:-expensetracker}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      retries: 5
+
+  migrate:
+    image: golang:1.24-alpine
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations
+    entrypoint: ["sh","-c","apk add --no-cache git && go install github.com/pressly/goose/v3/cmd/goose@latest && goose -dir /migrations postgres postgres://$DB_USER:$DB_PASS@$DB_HOST:$DB_PORT/$DB_NAME?sslmode=disable up"]
+    environment:
+      <<: *bot-env
+
+  bot:
+    build: .
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *bot-env
+    restart: unless-stopped
+
+volumes:
+  db-data:
